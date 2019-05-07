@@ -11,7 +11,7 @@ def build_shadow_M (X,tau,E,T):
     for i in range((tau*E-1),T):
         sample=np.zeros((E))
         for j in range(0,E):
-            sample[j]=x[i-j*tau]
+            sample[j]=X[i-j*tau]
         shadow_M[i-(tau*E-1),:]=sample
     return shadow_M
 
@@ -35,10 +35,7 @@ def nearest_points(M,idx,E):
             indices[i,j]=idx[indices[i,j]]
     return distances, indices
 
-def compute_weights(distances,indices,L,eps=1e-4):
-	'''Compute the weights for the weighted average estimation. 
-	The weights are computed following the next expression exp( -d(j)/(d(1) ) for j=1:E+1. eps is used to prevent the number 
-	in the denominator from being zero.'''
+def compute_weights(distances,indices,L,E,eps=1e-4):
     weights=np.zeros((L,E+1))
     weights_u=np.zeros((L,E+1))
     for i in range (L):
@@ -53,8 +50,6 @@ def compute_weights(distances,indices,L,eps=1e-4):
     return weights
 
 def compute_prediction(Mx,shadow_y,weights,E,tau,L,indices):
-	'''Compute the prediction of Y(t) as a weighted average if the closest neighbors of the shadow manifold. Returns the predicted and target
-	manifold of Y and the time series predicted and target for the indices randomly selected.'''
     MY_pred=np.zeros((L,E))
     for i in range(L):
         for j in range(1,E+2):
@@ -67,12 +62,10 @@ def compute_prediction(Mx,shadow_y,weights,E,tau,L,indices):
     return MY_pred, MY_target, y_pred, y_target
 
 def compute_corr(y_pred, y_target):
-	'''Compute the correlation between the predicted and the observed signals'''
     corr=np.corrcoef(y_pred,y_target)[1,0]
     return corr
 
 def compute_xmap(X,Y,T,E,tau,L):
-    '''Compute the convergent cross mapping between X and Y'''
     
     # Build the shadow manifold 
     shadow_x=build_shadow_M(X,tau,E,T)
@@ -88,7 +81,7 @@ def compute_xmap(X,Y,T,E,tau,L):
     distances_x, indices_x=nearest_points(recon_Mx,idx_x,E)
     
     # compute weights
-    weights_w_x=compute_weights(distances_x,indices_x,L)
+    weights_w_x=compute_weights(distances_x,indices_x,L,E)
     
     # compute prediction
     My_pred,My_target,y_pred, y_target=compute_prediction(recon_Mx,shadow_y,weights_w_x,E,tau,L,indices_x)
@@ -99,12 +92,12 @@ def compute_xmap(X,Y,T,E,tau,L):
     distances_y, indices_y=nearest_points(recon_My,idx_y,E)
     
     # compute weights
-    weights_w_y=compute_weights(distances_y,indices_y,L)
+    weights_w_y=compute_weights(distances_y,indices_y,L,E)
     
     # compute prediction 
     Mx_pred,Mx_target,x_pred, x_target=compute_prediction(recon_My,shadow_x,weights_w_y,E,tau,L,indices_y)
     
-    return y_pred, y_target, x_pred, x_target, distances_y, distances_x
+    return y_pred, y_target, x_pred, x_target
 
 
 
