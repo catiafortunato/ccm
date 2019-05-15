@@ -5,13 +5,12 @@ import bigfloat
 from decimal import *
 
 def build_shadow_M (X,tau,E,T):
-    '''Build the shadow manifold of the time series signal X, with E variables and sampling tau (how far back are we looking). 
-    Returns the shadow manifold'''
+    '''Build the shadow manifold of the time series signal X, with E variables and sampling tau'''
     shadow_M=np.zeros((T-E+1,E))
     for i in range((tau*E-1),T):
         sample=np.zeros((E))
         for j in range(0,E):
-            sample[j]=X[i-j*tau]
+            sample[j]=x[i-j*tau]
         shadow_M[i-(tau*E-1),:]=sample
     return shadow_M
 
@@ -23,23 +22,40 @@ def sample_manifold (M, L):
         new_M[i,:]=M[idx[i],:]
     return new_M, idx
 
-def nearest_points(M,idx,E):
+def nearest_points(shadow_x,M,idx,E):
     '''Find the E+2 nearest points to each point in the reconstructed manifold, it is only necessary E+1 
     but the first one is the point it self. The distance provided is the euclidean distance used to compute
     the weights in the weighted average for estimation.'''
     
-    nbrs=NearestNeighbors(n_neighbors=E+2,algorithm='kd_tree',metric='euclidean').fit(M)
-    distances, indices=nbrs.kneighbors(M)
-    for i in range(len(indices)):
-        for j in range(len(indices[i])):
-            indices[i,j]=idx[indices[i,j]]
-    return distances, indices
+    distances_t=np.zeros((len(shadow_x),E+1))
+    indices_t=np.zeros((len(shadow_x),E+1),dtype=int)
+    
+    for i in range(len(shadow_x)):
+        if shadow_x[i] in M:
+            nbrs=NearestNeighbors(n_neighbors=E+2,algorithm='kd_tree',metric='euclidean').fit(M)
+            distances, indices=nbrs.kneighbors(M)
+            k,l = np.where(M == shadow_x[i,:])
+            distances_t[i,:]=distances[k[0],1:E+3]
+            indices_t[i,:]=indices[k[0],1:E+3]
+        else:
+            np.concatenate((a,[[1,2,4]]),axis=0)
+            new_M=np.concatenate((M,[shadow_x[i,:]]))
+            nbrs=NearestNeighbors(n_neighbors=E+2,algorithm='kd_tree',metric='euclidean').fit(new_M)
+            distances, indices=nbrs.kneighbors(new_M)
+            distances_t[i,:]=distances[-1,1:E+3]
+            indices_t[i,:]=indices[-1,1:E+3]
+    
+    
+    for i in range(len(indices_t)):
+        for j in range(len(indices_t[i])):
+            indices_t[i,j]=idx[indices_t[i,j]]
+    return distances_t, indices_t
 
-def compute_weights(distances,indices,L,E,eps=1e-4):
-    weights=np.zeros((L,E+1))
-    weights_u=np.zeros((L,E+1))
-    for i in range (L):
-        for j in range(1,E+2):
+def compute_weights(distances,indices,T,eps=1e-4):
+    weights=np.zeros((T,E+1))
+    weights_u=np.zeros((T,E+1))
+    for i in range (len(distances)):
+        for j in range(0,E+1):
             num=(distances[i,j])
             den=(eps+distances[i,1])
             weights_u[i,j-1]=bigfloat.exp(-(num)/(den))
@@ -49,23 +65,21 @@ def compute_weights(distances,indices,L,E,eps=1e-4):
             weights[i,:]=weights_u[i,:]/np.sum(weights_u[i,:])
     return weights
 
-def compute_prediction(Mx,shadow_y,weights,E,tau,L,indices):
-    MY_pred=np.zeros((L,E))
-    for i in range(L):
-        for j in range(1,E+2):
-            MY_pred[i,:]=MY_pred[i,:]+weights[i,j-1]*shadow_y[indices[i,j],:]
-    MY_target=np.zeros((L,E))
-    for l in range(L):
-        MY_target[l,:]=shadow_y[indices[l,0],:]
+def compute_prediction(shadow_y,weights,E,tau,T,indices):
+    MY_pred=np.zeros((len(shadow_y),E))
+    for i in range(len(shadow_y)):
+        for j in range(0,E+1):
+            MY_pred[i,:]=MY_pred[i,:]+weights[i,j]*shadow_y[indices[i,j],:]
     y_pred=MY_pred[:,0]
-    y_target=MY_target[:,0]
-    return MY_pred, MY_target, y_pred, y_target
+    y_target=shadow_y[:,0]
+    return MY_pred, shadow_y, y_pred, y_target
 
 def compute_corr(y_pred, y_target):
     corr=np.corrcoef(y_pred,y_target)[1,0]
     return corr
 
 def compute_xmap(X,Y,T,E,tau,L):
+    '''Compute the convergent cross mapping between X and Y'''
     
     # Build the shadow manifold 
     shadow_x=build_shadow_M(X,tau,E,T)
@@ -78,27 +92,26 @@ def compute_xmap(X,Y,T,E,tau,L):
     ########## Predict Y from X ##########################
     
     # find nearest neighbors
-    distances_x, indices_x=nearest_points(recon_Mx,idx_x,E)
+    distances_x, indices_x=nearest_points(shadow_x,recon_Mx,idx_x,E)
     
     # compute weights
-    weights_w_x=compute_weights(distances_x,indices_x,L,E)
+    weights_w_x=compute_weights(distances_x,indices_x,T)
     
     # compute prediction
-    My_pred,My_target,y_pred, y_target=compute_prediction(recon_Mx,shadow_y,weights_w_x,E,tau,L,indices_x)
+    My_pred,My_target,y_pred, y_target=compute_prediction(shadow_y,weights_w_x,E,tau,T,indices_x)
     
     ########## Predict X from Y ##########################
     
     # find nearest neighbors
-    distances_y, indices_y=nearest_points(recon_My,idx_y,E)
+    distances_y, indices_y=nearest_points(shadow_y, recon_My,idx_y,E)
     
     # compute weights
-    weights_w_y=compute_weights(distances_y,indices_y,L,E)
+    weights_w_y=compute_weights(distances_y,indices_y,T)
     
     # compute prediction 
-    Mx_pred,Mx_target,x_pred, x_target=compute_prediction(recon_My,shadow_x,weights_w_y,E,tau,L,indices_y)
+    Mx_pred,Mx_target,x_pred, x_target=compute_prediction(shadow_x,weights_w_y,E,tau,T,indices_y)
     
     return y_pred, y_target, x_pred, x_target
-
 
 
 
