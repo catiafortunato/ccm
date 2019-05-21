@@ -130,6 +130,39 @@ def compute_xmap(X,Y,T,E,tau,L):
     
     return y_pred, y_target, x_pred, x_target
 
+def compute_xmap_selfpred(X,T,E,tau,L,tpred):
+    '''Compute the convergent cross mapping between X and Y'''
+    
+    # Build the shadow manifold 
+    shadow_x,shadow_x_pred=build_shadow_selfpred(X,tau,E,T,tpred)
+    
+    # Select randomly L points from the shadow manifold 
+    recon_Mx, idx_x=sample_manifold(shadow_x,L)
+    recon_My, idx_y=sample_manifold(shadow_x_pred,L)  
+    
+    ########## Predict Y from X ##########################
+    
+    # find nearest neighbors
+    distances_x, indices_x=nearest_points(shadow_x,recon_Mx,idx_x,E)
+    
+    # compute weights
+    weights_w_x=compute_weights(distances_x,indices_x,T,E)
+    
+    # compute prediction
+    My_pred,My_target,y_pred, y_target=compute_prediction(shadow_x_pred,weights_w_x,E,tau,T,indices_x)
+    
+    ########## Predict X from Y ##########################
+    
+    # find nearest neighbors
+    distances_y, indices_y=nearest_points(shadow_x_pred, recon_My,idx_y,E)
+    
+    # compute weights
+    weights_w_y=compute_weights(distances_y,indices_y,T,E)
+    
+    # compute prediction 
+    Mx_pred,Mx_target,x_pred, x_target=compute_prediction(shadow_x,weights_w_y,E,tau,T,indices_y)
+    
+    return y_pred, y_target, x_pred, x_target
 
 
 
