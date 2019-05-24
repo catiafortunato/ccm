@@ -3,6 +3,8 @@ import sklearn
 from sklearn.neighbors import NearestNeighbors
 import bigfloat
 from decimal import *
+from pytictoc import TicToc
+
 
 def build_shadow_M (X,tau,E,T):
     '''Build the shadow manifold of the time series signal X, with E variables and sampling tau'''
@@ -68,19 +70,21 @@ def nearest_points(shadow_x,M,idx,E):
             indices_t[i,j]=idx[indices_t[i,j]]
     return distances_t, indices_t
 
-def compute_weights(distances,indices,T,E,eps=1e-4):
-    weights=np.zeros((T,E+1))
-    weights_u=np.zeros((T,E+1))
-    for i in range (len(distances)):
+def compute_weights(shadow,distances,indices,T,E,eps=1e-4):
+    weights=np.zeros((len(shadow),E+1))
+    weights_u=np.zeros((len(shadow),E+1))
+    MY_pred=np.zeros((len(shadow),E))
+    for i in range (len(shadow)):
         for j in range(0,E+1):
             num=(distances[i,j])
             den=(eps+distances[i,1])
-            weights_u[i,j-1]=bigfloat.exp(-(num)/(den))
+            weights_u[i,j-1]=np.exp(-(num)/(den))
         if np.isinf(np.sum(weights[i,:])):
             weights[i,0]=1
         else:
             weights[i,:]=weights_u[i,:]/np.sum(weights_u[i,:])
-    return weights
+        MY_pred[i,:]=np.dot(weights[i,:],(list(shadow[j,:] for j in indices[i,:])))
+    return weights, MY_pred
 
 def compute_prediction(shadow_y,weights,E,tau,T,indices):
     MY_pred=np.zeros((len(shadow_y),E))
@@ -97,36 +101,59 @@ def compute_corr(y_pred, y_target):
 
 def compute_xmap(X,Y,T,E,tau,L):
     '''Compute the convergent cross mapping between X and Y'''
+    time=TicToc()
     
     # Build the shadow manifold 
+    print('Build shadow manifold')
+    time.tic()
     shadow_x=build_shadow_M(X,tau,E,T)
     shadow_y=build_shadow_M(Y,tau,E,T)
+    time.toc()
     
     # Select randomly L points from the shadow manifold 
+    print('Select L points from shadow manifold')
+    time.tic()
     recon_Mx, idx_x=sample_manifold(shadow_x,L)
     recon_My, idx_y=sample_manifold(shadow_y,L)  
+    time.toc()
     
     ########## Predict Y from X ##########################
+    print('Starting prediction of Y from X...')
     
     # find nearest neighbors
+    print('Finding nearest neighbors...')
+    time.tic()
     distances_x, indices_x=nearest_points(shadow_x,recon_Mx,idx_x,E)
+    time.toc()
     
     # compute weights
-    weights_w_x=compute_weights(distances_x,indices_x,T,E)
-    
+    print('Compute weights and prediction')
+    time.tic()
+    weights_w_x, My_pred=compute_weights(shadow_y,distances_x,indices_x,T,E)
+    y_pred=My_pred[:,0]
+    y_target=shadow_y[:,0]
+    time.toc()
     # compute prediction
-    My_pred,My_target,y_pred, y_target=compute_prediction(shadow_y,weights_w_x,E,tau,T,indices_x)
+    #My_pred,My_target,y_pred, y_target=compute_prediction(shadow_y,weights_w_x,E,tau,T,indices_x)
     
     ########## Predict X from Y ##########################
-    
+    print('Starting prediction of X from Y...')
     # find nearest neighbors
+    print('Finding nearest neighbors...')
+    time.tic()
     distances_y, indices_y=nearest_points(shadow_y, recon_My,idx_y,E)
+    time.toc()
     
     # compute weights
-    weights_w_y=compute_weights(distances_y,indices_y,T,E)
+    print('Compute weights and prediction')
+    time.tic()
+    weights_w_y, Mx_pred=compute_weights(shadow_x,distances_y,indices_y,T,E)
+    x_pred=Mx_pred[:,0]
+    x_target=shadow_x[:,0]
+    time.toc()
     
     # compute prediction 
-    Mx_pred,Mx_target,x_pred, x_target=compute_prediction(shadow_x,weights_w_y,E,tau,T,indices_y)
+    #Mx_pred,Mx_target,x_pred, x_target=compute_prediction(shadow_x,weights_w_y,E,tau,T,indices_y)
     
     return y_pred, y_target, x_pred, x_target
 
