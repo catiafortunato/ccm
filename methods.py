@@ -4,6 +4,7 @@ from sklearn.neighbors import NearestNeighbors
 import bigfloat
 from decimal import *
 from pytictoc import TicToc
+from numpy import linalg as LA 
 
 
 def build_shadow_M (X,tau,E,T):
@@ -41,6 +42,27 @@ def sample_manifold (M, L):
     for i in range(L):
         new_M[i,:]=M[idx[i],:]
     return new_M, idx
+
+def nearest(shadow_x,M,idx,E):
+    distances=np.zeros((shadow_x.shape[0],M.shape[0]+1)) 
+    dist=np.zeros((shadow_x.shape[0],E+1)) 
+    indices=np.zeros((shadow_x.shape[0],E+1))
+    distances[:,0]=np.array(range(0,shadow_x.shape[0])) # the first column is the index
+
+    for i in range(shadow_x.shape[0]):
+        distances[i,1:]=LA.norm(shadow_x[i,:]-M,axis=1) #distance between the point and all the points in the library
+        vec=distances[i,1:]
+        for j in range(E+1):
+            val=np.min(vec)
+            idx_i=np.where(vec==val)[0]
+            if idx_i[0]==np.int(distances[i,0]): # if the smallest distance is the point itself
+                vec[idx_i]=float("inf")
+                val=np.min(vec)
+                idx_i=np.where(vec==val)[0]
+            vec[idx_i]=float("inf")
+            dist[i,j]=val
+            indices[i,j]=idx[idx_i[0]]
+    return dist, indices 
 
 def nearest_points(shadow_x,M,idx,E):
     '''Find the E+2 nearest points to each point in the reconstructed manifold, it is only necessary E+1 
@@ -83,7 +105,7 @@ def compute_weights(shadow,distances,indices,T,E,eps=1e-4):
             weights[i,0]=1
         else:
             weights[i,:]=weights_u[i,:]/np.sum(weights_u[i,:])
-        MY_pred[i,:]=np.dot(weights[i,:],(list(shadow[j,:] for j in indices[i,:])))
+        MY_pred[i,:]=np.dot(weights[i,:],(list(shadow[np.int(j),:] for j in indices[i,:])))
     return weights, MY_pred
 
 def compute_prediction(shadow_y,weights,E,tau,T,indices):
@@ -101,57 +123,44 @@ def compute_corr(y_pred, y_target):
 
 def compute_xmap(X,Y,T,E,tau,L):
     '''Compute the convergent cross mapping between X and Y'''
-    time=TicToc()
+    
     
     # Build the shadow manifold 
-    print('Build shadow manifold')
-    time.tic()
     shadow_x=build_shadow_M(X,tau,E,T)
     shadow_y=build_shadow_M(Y,tau,E,T)
-    time.toc()
+    
     
     # Select randomly L points from the shadow manifold 
-    print('Select L points from shadow manifold')
-    time.tic()
     recon_Mx, idx_x=sample_manifold(shadow_x,L)
     recon_My, idx_y=sample_manifold(shadow_y,L)  
-    time.toc()
     
     ########## Predict Y from X ##########################
-    print('Starting prediction of Y from X...')
+
     
     # find nearest neighbors
-    print('Finding nearest neighbors...')
-    time.tic()
-    distances_x, indices_x=nearest_points(shadow_x,recon_Mx,idx_x,E)
-    time.toc()
+    distances_x, indices_x=nearest(shadow_x,recon_Mx,idx_x,E)
+
     
     # compute weights
-    print('Compute weights and prediction')
-    time.tic()
     weights_w_x, My_pred=compute_weights(shadow_y,distances_x,indices_x,T,E)
     y_pred=My_pred[:,0]
     y_target=shadow_y[:,0]
-    time.toc()
+
     # compute prediction
     #My_pred,My_target,y_pred, y_target=compute_prediction(shadow_y,weights_w_x,E,tau,T,indices_x)
     
     ########## Predict X from Y ##########################
-    print('Starting prediction of X from Y...')
+
     # find nearest neighbors
-    print('Finding nearest neighbors...')
-    time.tic()
-    distances_y, indices_y=nearest_points(shadow_y, recon_My,idx_y,E)
-    time.toc()
+
+    distances_y, indices_y=nearest(shadow_y, recon_My,idx_y,E)
+
     
     # compute weights
-    print('Compute weights and prediction')
-    time.tic()
     weights_w_y, Mx_pred=compute_weights(shadow_x,distances_y,indices_y,T,E)
     x_pred=Mx_pred[:,0]
     x_target=shadow_x[:,0]
-    time.toc()
-    
+
     # compute prediction 
     #Mx_pred,Mx_target,x_pred, x_target=compute_prediction(shadow_x,weights_w_y,E,tau,T,indices_y)
     
